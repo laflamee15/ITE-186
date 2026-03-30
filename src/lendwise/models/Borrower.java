@@ -9,6 +9,7 @@ public class Borrower implements Serializable {
 
     private String id;
     private String name;
+    // Keep the original field name so existing serialized borrower data still loads.
     private String contactNumber;
     private String address;
     private List<Loan> loans;
@@ -64,6 +65,14 @@ public class Borrower implements Serializable {
 
     public void setContactNumber(String contactNumber) {
         this.contactNumber = contactNumber;
+    }
+
+    public String getGmail() {
+        return contactNumber;
+    }
+
+    public void setGmail(String gmail) {
+        this.contactNumber = gmail;
     }
 
     public String getAddress() {

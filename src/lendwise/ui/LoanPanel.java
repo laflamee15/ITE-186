@@ -873,7 +873,10 @@ public class LoanPanel extends JPanel {
                 default -> UITheme.BORDER;
             };
 
-            boolean filled = "ACTIVE".equals(status);
+            boolean filled = "ACTIVE".equals(status)
+                || "OVERDUE".equals(status)
+                || "PAID".equals(status)
+                || "PENDING".equals(status);
             Color textColor = filled ? Color.WHITE : UITheme.TEXT;
             JLabel label = new JLabel(prettyStatus(status), SwingConstants.CENTER) {
                 @Override

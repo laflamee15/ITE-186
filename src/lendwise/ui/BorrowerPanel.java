@@ -48,7 +48,7 @@ public class BorrowerPanel extends JPanel {
 
     private final JTextField searchField = new JTextField(18);
     private final JTextField newNameField = new JTextField(18);
-    private final JTextField newContactField = new JTextField(16);
+    private final JTextField newGmailField = new JTextField(16);
     private final JTextField newAddressField = new JTextField(18);
     private final DefaultTableModel tableModel;
     private final JTable table;
@@ -86,7 +86,7 @@ public class BorrowerPanel extends JPanel {
         setBackground(UITheme.CARD);
 
         tableModel = new DefaultTableModel(new Object[]{
-            "BORROWER ID", "NAME", "CONTACT", "ADDRESS", "ACTIVE LOANS", "TOTAL BALANCE"
+            "BORROWER ID", "NAME", "GMAIL", "ADDRESS", "ACTIVE LOANS", "TOTAL BALANCE"
         }, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -128,7 +128,7 @@ public class BorrowerPanel extends JPanel {
 
         UITheme.applyTextField(searchField);
         UITheme.applyTextField(newNameField);
-        UITheme.applyTextField(newContactField);
+        UITheme.applyTextField(newGmailField);
         UITheme.applyTextField(newAddressField);
         inlineFormPanel.setOpaque(false);
         inlineFormPanel.setVisible(false);
@@ -326,7 +326,7 @@ public class BorrowerPanel extends JPanel {
         fields.setOpaque(false);
 
         fields.add(createInlineField("Full name", newNameField));
-        fields.add(createInlineField("Contact number", newContactField));
+        fields.add(createInlineField("Gmail", newGmailField));
         fields.add(createInlineField("Address", newAddressField));
 
         JLabel helper = new JLabel(
@@ -409,7 +409,7 @@ public class BorrowerPanel extends JPanel {
                 tableModel.addRow(new Object[]{
                     borrowerId,
                     name,
-                    safe(borrower.getContactNumber()),
+                    safe(borrower.getGmail()),
                     safe(borrower.getAddress()),
                     Integer.toString(activeLoans),
                     money(balance)
@@ -621,26 +621,28 @@ public class BorrowerPanel extends JPanel {
 
     private void clearInlineBorrowerForm() {
         newNameField.setText("");
-        newContactField.setText("");
+        newGmailField.setText("");
         newAddressField.setText("");
     }
 
     private void handleInlineBorrowerSave() {
         String name = newNameField.getText().trim();
-        String contact = newContactField.getText().trim();
+        String gmail = newGmailField.getText().trim();
         String address = newAddressField.getText().trim();
 
-        if (name.isEmpty() || contact.isEmpty() || address.isEmpty()) {
+        if (name.isEmpty() || gmail.isEmpty() || address.isEmpty()) {
             JOptionPane.showMessageDialog(
                 this,
-                "Please complete the full name, contact number, and address.",
+                "Please complete the full name, gmail, and address.",
                 "Borrowers",
                 JOptionPane.WARNING_MESSAGE
             );
             return;
         }
 
-        borrowers.add(new Borrower(generateBorrowerId(), name, contact, address));
+        Borrower borrower = new Borrower(generateBorrowerId(), name, gmail, address);
+        borrower.setGmail(gmail);
+        borrowers.add(borrower);
         saveAction.run();
         toggleInlineBorrowerForm(false);
         refreshTable();
@@ -664,7 +666,7 @@ public class BorrowerPanel extends JPanel {
         BorrowerForm form = new BorrowerForm();
         form.setId(existing.getId());
         form.setName(existing.getFullName());
-        form.setContactNumber(existing.getContactNumber());
+        form.setGmail(existing.getGmail());
         form.setAddress(existing.getAddress());
 
         int result = form.showDialog(this, "Edit Borrower");
@@ -674,7 +676,7 @@ public class BorrowerPanel extends JPanel {
 
         existing.setId(form.getId());
         existing.setFullName(form.getName());
-        existing.setContactNumber(form.getContactNumber());
+        existing.setGmail(form.getGmail());
         existing.setAddress(form.getAddress());
         saveAction.run();
         refreshTable();
@@ -727,7 +729,7 @@ public class BorrowerPanel extends JPanel {
     private static class BorrowerForm {
         private final JTextField idField = new JTextField(16);
         private final JTextField nameField = new JTextField(18);
-        private final JTextField contactField = new JTextField(16);
+        private final JTextField gmailField = new JTextField(16);
         private final JTextField addressField = new JTextField(18);
 
         int showDialog(JPanel parent, String title) {
@@ -764,11 +766,11 @@ public class BorrowerPanel extends JPanel {
             gbc.gridx = 0;
             gbc.gridy = 2;
             gbc.weightx = 0;
-            panel.add(new JLabel("Contact No.:"), gbc);
+            panel.add(new JLabel("Gmail:"), gbc);
 
             gbc.gridx = 1;
             gbc.weightx = 1;
-            panel.add(contactField, gbc);
+            panel.add(gmailField, gbc);
 
             gbc.gridx = 0;
             gbc.gridy = 3;
@@ -825,12 +827,12 @@ public class BorrowerPanel extends JPanel {
             nameField.setText(name == null ? "" : name);
         }
 
-        String getContactNumber() {
-            return contactField.getText().trim();
+        String getGmail() {
+            return gmailField.getText().trim();
         }
 
-        void setContactNumber(String contact) {
-            contactField.setText(contact == null ? "" : contact);
+        void setGmail(String gmail) {
+            gmailField.setText(gmail == null ? "" : gmail);
         }
 
         String getAddress() {

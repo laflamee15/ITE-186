@@ -90,6 +90,10 @@ public class LoanCalculator {
         if (loan == null) {
             return 0.0;
         }
+        String status = loan.getStatus() == null ? "" : loan.getStatus().trim().toUpperCase();
+        if ("PAID".equals(status)) {
+            return 0.0;
+        }
         return computeRemainingBalance(
             loan.getPrincipalAmount(),
             loan.getInterestRateAnnual(),

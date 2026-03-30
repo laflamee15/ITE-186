@@ -11,10 +11,9 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.RenderingHints;
-import java.awt.Toolkit;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.AbstractButton;
 import javax.swing.Box;
@@ -33,7 +32,9 @@ import javax.swing.plaf.basic.BasicButtonUI;
 import lendwise.models.Borrower;
 import lendwise.models.Loan;
 import lendwise.models.Payment;
+import lendwise.services.GmailReminderService;
 import lendwise.services.LoanCalculator;
+import lendwise.services.OverdueReminderService;
 import lendwise.utils.AppDataStore;
 
 public class DashboardFrame extends JFrame {
@@ -54,9 +55,14 @@ public class DashboardFrame extends JFrame {
     private final ArrayList<Payment> payments = new ArrayList<>();
     private final LoanCalculator loanCalculator = new LoanCalculator();
     private final AppDataStore appDataStore = new AppDataStore();
+    private final GmailReminderService gmailReminderService = new GmailReminderService();
+    private final OverdueReminderService overdueReminderService = new OverdueReminderService();
     private final JLabel loanStatusLabel = new JLabel("Loan Status: (select a loan)", SwingConstants.LEFT);
     private final String username;
     private String currentView = "Dashboard";
+    private boolean overdueReminderPromptShown;
+    private boolean autoReminderCheckInProgress;
+    private final Set<String> remindedLoanKeysThisSession = new LinkedHashSet<>();
 
     public DashboardFrame(String username) {
         this.username = username == null || username.trim().isEmpty() ? "user" : username.trim();
@@ -64,23 +70,12 @@ public class DashboardFrame extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setMinimumSize(new Dimension(980, 600));
         setLocationRelativeTo(null);
-        // Ensure fullscreen during defense; also set explicit size so layouts
-        // get real bounds immediately even before the window manager maximizes.
-        setSize(Toolkit.getDefaultToolkit().getScreenSize());
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
         UITheme.installTableDefaults();
         appDataStore.loadInto(borrowers, loans, payments);
         setJMenuBar(buildMenuBar());
         setContentPane(buildContent());
-
-        // Some Windows setups don't apply MAXIMIZED_BOTH reliably until the window is opened.
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowOpened(WindowEvent e) {
-                setExtendedState(JFrame.MAXIMIZED_BOTH);
-                validate();
-                repaint();
-            }
-        });
+        javax.swing.SwingUtilities.invokeLater(this::promptForOverdueReminders);
     }
 
     private JPanel buildContent() {
@@ -113,23 +108,45 @@ public class DashboardFrame extends JFrame {
         headerRow.add(header, BorderLayout.WEST);
         headerRow.add(themeToggleButton, BorderLayout.EAST);
 
-        final Runnable[] dataChangedRef = new Runnable[1];
-        Runnable saveAction = () -> {
-            if (dataChangedRef[0] != null) {
-                dataChangedRef[0].run();
+        final Runnable[] borrowerSaveRef = new Runnable[1];
+        final Runnable[] loanSaveRef = new Runnable[1];
+        final Runnable[] paymentSaveRef = new Runnable[1];
+        Runnable borrowerSaveAction = () -> {
+            if (borrowerSaveRef[0] != null) {
+                borrowerSaveRef[0].run();
+            }
+        };
+        Runnable loanSaveAction = () -> {
+            if (loanSaveRef[0] != null) {
+                loanSaveRef[0].run();
+            }
+        };
+        Runnable paymentSaveAction = () -> {
+            if (paymentSaveRef[0] != null) {
+                paymentSaveRef[0].run();
             }
         };
 
-        BorrowerPanel borrowerPanel = new BorrowerPanel(borrowers, loans, payments, loanCalculator, username, saveAction);
-        LoanPanel loanPanel = new LoanPanel(borrowers, loans, payments, loanCalculator, username, saveAction);
-        PaymentPanel paymentPanel = new PaymentPanel(borrowers, payments, loans, loanCalculator, saveAction);
+        BorrowerPanel borrowerPanel = new BorrowerPanel(borrowers, loans, payments, loanCalculator, username, borrowerSaveAction);
+        LoanPanel loanPanel = new LoanPanel(borrowers, loans, payments, loanCalculator, username, loanSaveAction);
+        PaymentPanel paymentPanel = new PaymentPanel(borrowers, payments, loans, loanCalculator, paymentSaveAction);
         DashboardPanel dashboardPanel = new DashboardPanel(borrowers, loans, payments, loanCalculator, username);
-        dataChangedRef[0] = () -> {
+        Runnable refreshAll = () -> {
             appDataStore.save(borrowers, loans, payments);
             borrowerPanel.refreshTable();
             loanPanel.refreshTable();
             paymentPanel.refreshTable();
             dashboardPanel.refresh();
+            refreshOverdueReminderPromptState();
+        };
+        borrowerSaveRef[0] = refreshAll;
+        loanSaveRef[0] = () -> {
+            refreshAll.run();
+            processAutomaticReminders(false, true);
+        };
+        paymentSaveRef[0] = () -> {
+            refreshAll.run();
+            processAutomaticReminders(false, true);
         };
         borrowerPanel.refreshTable();
         loanPanel.refreshTable();
@@ -489,10 +506,14 @@ public class DashboardFrame extends JFrame {
         bar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UITheme.BORDER));
 
         JMenu file = new JMenu("File");
+        JMenuItem sendReminders = new JMenuItem("Send Overdue Reminders Now");
         JMenuItem exit = new JMenuItem("Exit");
         file.setForeground(UITheme.TEXT);
+        sendReminders.setForeground(UITheme.TEXT);
         exit.setForeground(UITheme.TEXT);
+        sendReminders.addActionListener(e -> sendOverdueReminders());
         exit.addActionListener(e -> dispose());
+        file.add(sendReminders);
         file.add(exit);
 
         JMenu help = new JMenu("Help");
@@ -507,6 +528,115 @@ public class DashboardFrame extends JFrame {
         bar.add(file);
         bar.add(help);
         return bar;
+    }
+
+    private void promptForOverdueReminders() {
+        if (overdueReminderPromptShown) {
+            return;
+        }
+        overdueReminderPromptShown = true;
+        int overdueBorrowers = overdueReminderService.countOverdueBorrowers(borrowers, loans);
+        if (overdueBorrowers <= 0) {
+            return;
+        }
+        processAutomaticReminders(true, false);
+    }
+
+    private void refreshOverdueReminderPromptState() {
+        if (overdueReminderService.countOverdueBorrowers(borrowers, loans) <= 0) {
+            overdueReminderPromptShown = false;
+        }
+    }
+
+    private void sendOverdueReminders() {
+        processAutomaticReminders(true, false);
+    }
+
+    private void processAutomaticReminders(boolean interactive, boolean onlyNewThisSession) {
+        if (autoReminderCheckInProgress) {
+            return;
+        }
+        autoReminderCheckInProgress = true;
+        Set<String> targetLoanKeys = collectTargetOverdueLoanKeys(onlyNewThisSession);
+        if (targetLoanKeys.isEmpty()) {
+            autoReminderCheckInProgress = false;
+            if (interactive) {
+                JOptionPane.showMessageDialog(
+                    this,
+                    "No new overdue reminders needed to be sent.",
+                    "Overdue Reminders",
+                    JOptionPane.INFORMATION_MESSAGE
+                );
+            }
+            return;
+        }
+        GmailReminderService.ReminderResult result =
+            gmailReminderService.sendSelectedOverdueReminders(borrowers, loans, targetLoanKeys);
+        if (!result.isConfigured()) {
+            autoReminderCheckInProgress = false;
+            if (!interactive) {
+                return;
+            }
+            JOptionPane.showMessageDialog(
+                this,
+                "Edit " + gmailReminderService.getMailConfig().getConfigPath()
+                    + " and enter your sender Gmail and Gmail App Password first.",
+                "Gmail Reminder Setup",
+                JOptionPane.INFORMATION_MESSAGE
+            );
+            return;
+        }
+        if (result.sentCount() > 0) {
+            remindedLoanKeysThisSession.addAll(targetLoanKeys);
+        } else if (!result.errors().isEmpty()) {
+            JOptionPane.showMessageDialog(
+                this,
+                result.errors().get(0),
+                "Overdue Reminders",
+                JOptionPane.WARNING_MESSAGE
+            );
+        } else if (interactive) {
+            JOptionPane.showMessageDialog(
+                this,
+                "No new overdue reminders needed to be sent.",
+                "Overdue Reminders",
+                JOptionPane.INFORMATION_MESSAGE
+            );
+        }
+        autoReminderCheckInProgress = false;
+    }
+
+    private Set<String> collectTargetOverdueLoanKeys(boolean onlyNewThisSession) {
+        Set<String> targetLoanKeys = new LinkedHashSet<>();
+        java.time.LocalDate today = java.time.LocalDate.now();
+        for (Loan loan : loans) {
+            if (loan == null) {
+                continue;
+            }
+
+            String status = safe(loan.getStatus()).trim().toUpperCase();
+            java.time.LocalDate dueDate = null;
+            if (loan.getStartDate() != null && loan.getOriginalTermMonths() > 0) {
+                dueDate = loan.getStartDate().plusMonths(loan.getOriginalTermMonths());
+            }
+
+            boolean overdue = ("OVERDUE".equals(status) || (dueDate != null && dueDate.isBefore(today)))
+                && !"PAID".equals(status);
+            if (!overdue) {
+                continue;
+            }
+
+            String loanKey = buildLoanKey(loan.getBorrowerId(), loan.getId());
+            if (onlyNewThisSession && remindedLoanKeysThisSession.contains(loanKey)) {
+                continue;
+            }
+            targetLoanKeys.add(loanKey);
+        }
+        return targetLoanKeys;
+    }
+
+    private String buildLoanKey(String borrowerId, String loanId) {
+        return safe(borrowerId) + "::" + safe(loanId);
     }
 
     private String safe(String s) {
