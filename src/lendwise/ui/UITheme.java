@@ -197,7 +197,7 @@ public final class UITheme {
         if (!isLightMode()) {
             return blend(accent, BG, 0.78f);
         }
-        return blend(accent, Color.WHITE, 0.82f);
+        return blend(accent, Color.WHITE, 0.94f);
     }
 
     public static Color metricPrimaryText() {
@@ -205,11 +205,11 @@ public final class UITheme {
     }
 
     public static Color metricSecondaryText() {
-        return isLightMode() ? new Color(0xEC, 0xF3, 0xFF) : new Color(0xE2, 0xE8, 0xF0);
+        return isLightMode() ? new Color(0xF5, 0xF9, 0xFF) : new Color(0xE2, 0xE8, 0xF0);
     }
 
     public static Color metricPillBorder() {
-        return isLightMode() ? new Color(0xFF, 0xFF, 0xFF, 170) : new Color(0xFF, 0xFF, 0xFF, 130);
+        return isLightMode() ? new Color(0xFF, 0xFF, 0xFF, 215) : new Color(0xFF, 0xFF, 0xFF, 130);
     }
 
     public static Color metricPillFill(Color accent) {
@@ -219,7 +219,7 @@ public final class UITheme {
         if (!isLightMode()) {
             return blend(accent, BG, 0.56f);
         }
-        return blend(accent, Color.WHITE, 0.62f);
+        return blend(accent, Color.WHITE, 0.82f);
     }
 
     private static Color blend(Color first, Color second, float ratioFirst) {

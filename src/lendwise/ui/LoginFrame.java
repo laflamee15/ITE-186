@@ -290,6 +290,26 @@ public class LoginFrame extends JFrame {
         return label;
     }
 
+    private JPanel createInputWrapper(Component field) {
+        JPanel wrapper = new JPanel(new java.awt.BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.setAlignmentX(Component.CENTER_ALIGNMENT);
+        wrapper.setMinimumSize(new Dimension(440, 44));
+        wrapper.setMaximumSize(new Dimension(440, 44));
+        wrapper.setPreferredSize(new Dimension(440, 44));
+
+        RoundedPanel rounded = new RoundedPanel(20, FIELD_BG);
+        rounded.setBorderColor(BORDER);
+        rounded.setBorderWidth(1);
+        rounded.setLayout(new java.awt.BorderLayout());
+        rounded.setMinimumSize(new Dimension(440, 44));
+        rounded.setMaximumSize(new Dimension(440, 44));
+        rounded.setPreferredSize(new Dimension(440, 44));
+        rounded.add(field, java.awt.BorderLayout.CENTER);
+        wrapper.add(rounded, java.awt.BorderLayout.CENTER);
+        return wrapper;
+    }
+
     private JPanel wrapCentered(Component component) {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
         panel.setOpaque(false);
@@ -299,31 +319,11 @@ public class LoginFrame extends JFrame {
     }
 
     private JPanel wrapInputWithRoundedBorder(JTextField field) {
-        JPanel wrapper = new JPanel(new java.awt.BorderLayout());
-        wrapper.setOpaque(false);
-        RoundedPanel rounded = new RoundedPanel(20, FIELD_BG);
-        rounded.setBorderColor(BORDER);
-        rounded.setBorderWidth(1);
-        rounded.setLayout(new java.awt.BorderLayout());
-        rounded.setMaximumSize(new Dimension(440, 44));
-        rounded.setPreferredSize(new Dimension(440, 44));
-        rounded.add(field, java.awt.BorderLayout.CENTER);
-        wrapper.add(rounded);
-        return wrapCentered(wrapper);
+        return createInputWrapper(field);
     }
 
     private JPanel wrapPasswordWithRoundedBorder(JPasswordField field) {
-        JPanel wrapper = new JPanel(new java.awt.BorderLayout());
-        wrapper.setOpaque(false);
-        RoundedPanel rounded = new RoundedPanel(20, FIELD_BG);
-        rounded.setBorderColor(BORDER);
-        rounded.setBorderWidth(1);
-        rounded.setLayout(new java.awt.BorderLayout());
-        rounded.setMaximumSize(new Dimension(440, 44));
-        rounded.setPreferredSize(new Dimension(440, 44));
-        rounded.add(field, java.awt.BorderLayout.CENTER);
-        wrapper.add(rounded);
-        return wrapCentered(wrapper);
+        return createInputWrapper(field);
     }
 
     private void styleInput(JTextField field) {
@@ -333,9 +333,12 @@ public class LoginFrame extends JFrame {
         field.setCaretColor(TEXT);
         field.setSelectionColor(new Color(0x2A, 0x67, 0xF0));
         field.setSelectedTextColor(Color.WHITE);
-        field.setMaximumSize(new Dimension(440, 44));
+        field.setMinimumSize(new Dimension(0, 44));
         field.setPreferredSize(new Dimension(440, 44));
-        field.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+        field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        field.setBorder(BorderFactory.createEmptyBorder(12, 18, 12, 18));
+        field.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        field.setHorizontalAlignment(JTextField.LEFT);
     }
 
     private void stylePasswordInput(JPasswordField field) {
@@ -346,9 +349,12 @@ public class LoginFrame extends JFrame {
         field.setCaretColor(TEXT);
         field.setSelectionColor(new Color(0x2A, 0x67, 0xF0));
         field.setSelectedTextColor(Color.WHITE);
-        field.setMaximumSize(new Dimension(440, 44));
+        field.setMinimumSize(new Dimension(0, 44));
         field.setPreferredSize(new Dimension(440, 44));
-        field.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
+        field.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
+        field.setBorder(BorderFactory.createEmptyBorder(12, 18, 12, 18));
+        field.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        field.setHorizontalAlignment(JTextField.LEFT);
     }
 
     private void styleGradientButton(JButton button, Dimension size) {
@@ -464,8 +470,9 @@ public class LoginFrame extends JFrame {
             return;
         }
 
-        String displayName = accountStore.getDisplayName(email);
-        DashboardFrame dashboard = new DashboardFrame(displayName);
+        String exactEmail = email.trim();
+        String displayName = accountStore.getDisplayName(exactEmail);
+        DashboardFrame dashboard = new DashboardFrame(displayName, exactEmail);
         dashboard.setVisible(true);
         dispose();
     }

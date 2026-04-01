@@ -37,6 +37,7 @@ import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.JTableHeader;
+import javax.swing.table.TableColumnModel;
 import lendwise.models.Borrower;
 import lendwise.models.Loan;
 import lendwise.models.Payment;
@@ -68,9 +69,12 @@ public class LoanPanel extends JPanel {
     private final JTextField newTermField = new JTextField(6);
     private final JTextField newStartDateField = new JTextField(10);
     private final JTextField newCollectorField = new JTextField(10);
+    private final JComboBox<String> newStatusCombo = new JComboBox<>(new String[]{"ACTIVE", "OVERDUE", "PAID", "PENDING"});
     private final JButton saveLoanButton = new JButton("Save Loan");
     private final JButton cancelLoanButton = new JButton("Cancel");
     private final JPanel inlineFormPanel = new JPanel(new BorderLayout(0, 12));
+    private final JLabel inlineFormHelperLabel = new JLabel("", SwingConstants.LEFT);
+    private Loan editingLoan;
     private LoanSelectionListener selectionListener;
 
     private final JLabel totalLoansValue = new JLabel("0", SwingConstants.LEFT);
@@ -102,7 +106,7 @@ public class LoanPanel extends JPanel {
 
         tableModel = new DefaultTableModel(new Object[]{
             "LOAN #", "BORROWER", "PRINCIPAL", "INTEREST", "TOTAL PAYABLE",
-            "INSTALLMENT", "NEXT DUE", "STATUS", "REMAINING BALANCE"
+            "INSTALLMENT", "NEXT DUE", "TERMS LEFT", "STATUS", "REMAINING BALANCE"
         }, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -123,6 +127,7 @@ public class LoanPanel extends JPanel {
         table.setRowSelectionAllowed(true);
         table.setSelectionBackground(UITheme.CARD_2);
         table.setSelectionForeground(UITheme.TEXT);
+        table.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
         table.setDefaultRenderer(Object.class, createTableRenderer());
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
@@ -142,13 +147,15 @@ public class LoanPanel extends JPanel {
             header.setFont(headerFont.deriveFont(Font.BOLD, 11f));
         }
 
-        table.getColumnModel().getColumn(7).setCellRenderer(new StatusPillRenderer());
+        table.getColumnModel().getColumn(8).setCellRenderer(new StatusPillRenderer());
+        configureTableColumns();
         UITheme.applyTextField(newPrincipalField);
         UITheme.applyTextField(newRateField);
         UITheme.applyTextField(newTermField);
         UITheme.applyTextField(newStartDateField);
         UITheme.applyTextField(newCollectorField);
         styleBorrowerCombo();
+        styleStatusCombo();
         inlineFormPanel.setOpaque(false);
         inlineFormPanel.setVisible(false);
 
@@ -244,6 +251,25 @@ public class LoanPanel extends JPanel {
         return card;
     }
 
+    private void configureTableColumns() {
+        TableColumnModel columns = table.getColumnModel();
+        setColumnWidth(columns, 0, 92, 100);
+        setColumnWidth(columns, 1, 130, 150);
+        setColumnWidth(columns, 2, 92, 102);
+        setColumnWidth(columns, 3, 64, 72);
+        setColumnWidth(columns, 4, 98, 108);
+        setColumnWidth(columns, 5, 94, 104);
+        setColumnWidth(columns, 6, 96, 108);
+        setColumnWidth(columns, 7, 72, 82);
+        setColumnWidth(columns, 8, 92, 100);
+        setColumnWidth(columns, 9, 108, 118);
+    }
+
+    private void setColumnWidth(TableColumnModel columns, int index, int minWidth, int preferredWidth) {
+        columns.getColumn(index).setMinWidth(minWidth);
+        columns.getColumn(index).setPreferredWidth(preferredWidth);
+    }
+
     private JPanel buildManagementCard() {
         RoundedPanel card = new RoundedPanel(24, UITheme.PANEL_BG);
         card.setBorderColor(UITheme.BORDER);
@@ -275,7 +301,10 @@ public class LoanPanel extends JPanel {
         JButton addBtn = new JButton("+ New loan");
         UITheme.applySecondaryButton(addBtn);
         addBtn.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
-        addBtn.addActionListener(e -> toggleInlineLoanForm(true));
+        addBtn.addActionListener(e -> {
+            clearInlineLoanForm();
+            toggleInlineLoanForm(true);
+        });
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         right.setOpaque(false);
@@ -373,6 +402,7 @@ public class LoanPanel extends JPanel {
                 double installment = calculator.computeMonthlyInstallment(loan);
                 double paid = paidAmountForBorrower(safe(loan.getBorrowerId()));
                 double remaining = calculator.computeRemainingBalance(loan, paid);
+                int termsLeft = remainingTerms(loan);
                 totalOutstanding += remaining;
 
                 tableModel.addRow(new Object[]{
@@ -383,6 +413,7 @@ public class LoanPanel extends JPanel {
                     money(totalPayable),
                     money(installment),
                     formatDate(nextDueDate(loan)),
+                    Integer.toString(termsLeft),
                     prettyStatus(status),
                     money(remaining)
                 });
@@ -407,6 +438,7 @@ public class LoanPanel extends JPanel {
         if (tableModel.getRowCount() == 0) {
             tableModel.addRow(new Object[]{
                 "No loan records yet.",
+                "",
                 "",
                 "",
                 "",
@@ -438,7 +470,27 @@ public class LoanPanel extends JPanel {
         if (loan == null || loan.getStartDate() == null || loan.getOriginalTermMonths() <= 0) {
             return null;
         }
-        return loan.getStartDate().plusMonths(loan.getOriginalTermMonths());
+        String status = normalizeStatus(loan.getStatus());
+        if ("PAID".equals(status)) {
+            return null;
+        }
+        int completedTerms = Math.min(countPaymentsForBorrower(safe(loan.getBorrowerId())), loan.getOriginalTermMonths());
+        if (completedTerms >= loan.getOriginalTermMonths()) {
+            return null;
+        }
+        return loan.getStartDate().plusMonths(completedTerms + 1L);
+    }
+
+    private int remainingTerms(Loan loan) {
+        if (loan == null || loan.getOriginalTermMonths() <= 0) {
+            return 0;
+        }
+        String status = normalizeStatus(loan.getStatus());
+        if ("PAID".equals(status)) {
+            return 0;
+        }
+        int completedTerms = Math.min(countPaymentsForBorrower(safe(loan.getBorrowerId())), loan.getOriginalTermMonths());
+        return Math.max(0, loan.getOriginalTermMonths() - completedTerms);
     }
 
     private double paidAmountForBorrower(String borrowerId) {
@@ -452,6 +504,19 @@ public class LoanPanel extends JPanel {
             }
         }
         return total;
+    }
+
+    private int countPaymentsForBorrower(String borrowerId) {
+        int count = 0;
+        if (payments == null) {
+            return count;
+        }
+        for (Payment payment : payments) {
+            if (payment != null && borrowerId.equalsIgnoreCase(safe(payment.getLoanId()))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private String formatDate(LocalDate date) {
@@ -493,7 +558,7 @@ public class LoanPanel extends JPanel {
                     label.setHorizontalAlignment(column == 0 ? SwingConstants.CENTER : SwingConstants.LEFT);
                     return label;
                 }
-                label.setHorizontalAlignment((column == 2 || column == 4 || column == 5 || column == 8)
+                label.setHorizontalAlignment((column == 2 || column == 4 || column == 5 || column == 7 || column == 9)
                     ? SwingConstants.RIGHT
                     : SwingConstants.LEFT);
                 return label;
@@ -535,7 +600,7 @@ public class LoanPanel extends JPanel {
 
         refreshBorrowerOptions();
 
-        JPanel fields = new JPanel(new GridLayout(2, 3, 10, 10));
+        JPanel fields = new JPanel(new GridLayout(2, 4, 10, 10));
         fields.setOpaque(false);
         fields.add(createInlineField("Borrower", newBorrowerCombo));
         fields.add(createInlineField("Principal amount (₱)", newPrincipalField));
@@ -543,12 +608,10 @@ public class LoanPanel extends JPanel {
         fields.add(createInlineField("Term (months)", newTermField));
         fields.add(createInlineField("Start date (yyyy-MM-dd)", newStartDateField));
         fields.add(createInlineField("Collector name", newCollectorField));
+        fields.add(createInlineField("Status", newStatusCombo));
 
-        JLabel helper = new JLabel(
-            "Create a loan inline without opening a popup. Fill in the details then save.",
-            SwingConstants.LEFT
-        );
-        helper.setForeground(UITheme.TEXT_MUTED);
+        inlineFormHelperLabel.setForeground(UITheme.TEXT_MUTED);
+        updateInlineFormState();
 
         UITheme.applySecondaryButton(cancelLoanButton);
         cancelLoanButton.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
@@ -563,7 +626,7 @@ public class LoanPanel extends JPanel {
         actions.add(cancelLoanButton);
         actions.add(saveLoanButton);
 
-        formShell.add(helper, BorderLayout.NORTH);
+        formShell.add(inlineFormHelperLabel, BorderLayout.NORTH);
         formShell.add(fields, BorderLayout.CENTER);
         formShell.add(actions, BorderLayout.SOUTH);
 
@@ -629,6 +692,58 @@ public class LoanPanel extends JPanel {
         });
     }
 
+    private void styleStatusCombo() {
+        newStatusCombo.setUI(new BasicComboBoxUI() {
+            @Override
+            public void paintCurrentValueBackground(Graphics g, Rectangle bounds, boolean hasFocus) {
+                g.setColor(UITheme.CARD_2);
+                g.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+            }
+
+            @Override
+            protected JButton createArrowButton() {
+                JButton button = new JButton("v");
+                button.setBackground(UITheme.CARD_2);
+                button.setForeground(UITheme.TEXT_MUTED);
+                button.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, UITheme.BORDER));
+                button.setFocusPainted(false);
+                button.setContentAreaFilled(true);
+                button.setOpaque(true);
+                return button;
+            }
+        });
+        newStatusCombo.setBackground(UITheme.CARD_2);
+        newStatusCombo.setForeground(UITheme.TEXT);
+        newStatusCombo.setFocusable(false);
+        newStatusCombo.setOpaque(false);
+        newStatusCombo.setBorder(BorderFactory.createLineBorder(UITheme.BORDER, 1));
+        newStatusCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list,
+                    Object value,
+                    int index,
+                    boolean isSelected,
+                    boolean cellHasFocus
+            ) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(
+                    list,
+                    value,
+                    index,
+                    isSelected,
+                    cellHasFocus
+                );
+                boolean inDropdown = index >= 0;
+                label.setOpaque(true);
+                label.setBorder(new EmptyBorder(8, 10, 8, 10));
+                label.setBackground(isSelected
+                    ? (inDropdown ? UITheme.ACCENT : UITheme.CARD_2)
+                    : UITheme.CARD_2);
+                label.setForeground(isSelected && inDropdown ? Color.WHITE : UITheme.TEXT);
+                return label;
+            }
+        });
+    }
     private JPanel createInlineField(String labelText, Component input) {
         JPanel wrapper = new JPanel();
         wrapper.setOpaque(false);
@@ -679,6 +794,7 @@ public class LoanPanel extends JPanel {
         if (!visible) {
             clearInlineLoanForm();
         } else {
+            updateInlineFormState();
             newPrincipalField.requestFocusInWindow();
         }
         revalidate();
@@ -686,6 +802,7 @@ public class LoanPanel extends JPanel {
     }
 
     private void clearInlineLoanForm() {
+        editingLoan = null;
         if (newBorrowerCombo.getItemCount() > 0) {
             newBorrowerCombo.setSelectedIndex(0);
         }
@@ -694,6 +811,33 @@ public class LoanPanel extends JPanel {
         newTermField.setText("");
         newStartDateField.setText(LocalDate.now().toString());
         newCollectorField.setText("");
+        newStatusCombo.setSelectedItem("ACTIVE");
+        updateInlineFormState();
+    }
+
+    private void updateInlineFormState() {
+        boolean editing = editingLoan != null;
+        inlineFormHelperLabel.setText(editing
+            ? "Update the selected loan below, then click save to apply your changes."
+            : "Create a loan inline without opening a popup. Fill in the details then save.");
+        saveLoanButton.setText(editing ? "Save Changes" : "Save Loan");
+    }
+
+    private void startInlineEdit(Loan loan) {
+        if (loan == null) {
+            return;
+        }
+        editingLoan = loan;
+        refreshBorrowerOptions();
+        newBorrowerCombo.setSelectedItem(safe(loan.getBorrowerId()));
+        newPrincipalField.setText(Double.toString(loan.getPrincipalAmount()));
+        newRateField.setText(Double.toString(loan.getInterestRateAnnual()));
+        newTermField.setText(Integer.toString(loan.getTermMonths()));
+        newStartDateField.setText(loan.getStartDate() == null ? "" : loan.getStartDate().toString());
+        newCollectorField.setText(safe(loan.getCollectorName()));
+        newStatusCombo.setSelectedItem(normalizeStatus(loan.getStatus()).isEmpty() ? "ACTIVE" : normalizeStatus(loan.getStatus()));
+        updateInlineFormState();
+        toggleInlineLoanForm(true);
     }
 
     private void refreshBorrowerOptions() {
@@ -728,12 +872,23 @@ public class LoanPanel extends JPanel {
             int term = Integer.parseInt(newTermField.getText().trim());
             LocalDate startDate = LocalDate.parse(newStartDateField.getText().trim());
             String collectorName = newCollectorField.getText().trim();
+            String status = newStatusCombo.getSelectedItem() == null ? "ACTIVE" : newStatusCombo.getSelectedItem().toString().trim();
 
             if (borrowerId.isEmpty()) {
                 throw new IllegalArgumentException("borrower");
             }
 
-            loans.add(new Loan(generateLoanId(), borrowerId, principal, rate, term, startDate, collectorName, "ACTIVE"));
+            if (editingLoan != null) {
+                editingLoan.setBorrowerId(borrowerId);
+                editingLoan.setPrincipalAmount(principal);
+                editingLoan.setInterestRateAnnual(rate);
+                editingLoan.setTermMonths(term);
+                editingLoan.setStartDate(startDate);
+                editingLoan.setCollectorName(collectorName);
+                editingLoan.setStatus(status);
+            } else {
+                loans.add(new Loan(generateLoanId(), borrowerId, principal, rate, term, startDate, collectorName, status));
+            }
             saveAction.run();
             toggleInlineLoanForm(false);
             refreshTable();
@@ -762,36 +917,7 @@ public class LoanPanel extends JPanel {
         if (existing == null) {
             return;
         }
-
-        LoanForm form = new LoanForm();
-        form.fromLoan(existing);
-
-        int result = form.showDialog(this, "Edit Loan");
-        if (result != JOptionPane.OK_OPTION) {
-            return;
-        }
-
-        Loan updated = form.toLoan();
-        if (updated == null) {
-            JOptionPane.showMessageDialog(
-                this,
-                "Please enter valid numeric values for principal, rate, term and valid date (yyyy-MM-dd).",
-                "Loan",
-                JOptionPane.WARNING_MESSAGE
-            );
-            return;
-        }
-
-        existing.setId(updated.getId());
-        existing.setBorrowerId(updated.getBorrowerId());
-        existing.setPrincipalAmount(updated.getPrincipalAmount());
-        existing.setInterestRateAnnual(updated.getInterestRateAnnual());
-        existing.setTermMonths(updated.getTermMonths());
-        existing.setStartDate(updated.getStartDate());
-        existing.setCollectorName(updated.getCollectorName());
-        existing.setStatus(updated.getStatus());
-        saveAction.run();
-        refreshTable();
+        startInlineEdit(existing);
     }
 
     private void handleDelete(String loanId) {
@@ -1071,3 +1197,6 @@ public class LoanPanel extends JPanel {
         }
     }
 }
+
+
+

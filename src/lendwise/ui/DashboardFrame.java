@@ -54,18 +54,21 @@ public class DashboardFrame extends JFrame {
     private final ArrayList<Loan> loans = new ArrayList<>();
     private final ArrayList<Payment> payments = new ArrayList<>();
     private final LoanCalculator loanCalculator = new LoanCalculator();
-    private final AppDataStore appDataStore = new AppDataStore();
+    private final AppDataStore appDataStore;
     private final GmailReminderService gmailReminderService = new GmailReminderService();
     private final OverdueReminderService overdueReminderService = new OverdueReminderService();
     private final JLabel loanStatusLabel = new JLabel("Loan Status: (select a loan)", SwingConstants.LEFT);
     private final String username;
+    private final String accountEmail;
     private String currentView = "Dashboard";
     private boolean overdueReminderPromptShown;
     private boolean autoReminderCheckInProgress;
     private final Set<String> remindedLoanKeysThisSession = new LinkedHashSet<>();
 
-    public DashboardFrame(String username) {
+    public DashboardFrame(String username, String accountEmail) {
         this.username = username == null || username.trim().isEmpty() ? "user" : username.trim();
+        this.accountEmail = accountEmail == null ? "" : accountEmail.trim();
+        this.appDataStore = new AppDataStore(this.accountEmail);
         setTitle("LendWise - Dashboard");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setMinimumSize(new Dimension(980, 600));
@@ -194,7 +197,7 @@ public class DashboardFrame extends JFrame {
         CardLayout contentLayout = new CardLayout();
         JPanel contentStack = new JPanel(contentLayout);
         contentStack.setOpaque(false);
-        int maxContentWidth = 1150;
+        int maxContentWidth = 1280;
         contentStack.add(new CenteredWidthPanel(maxContentWidth, dashboardCard), "Dashboard");
         contentStack.add(new CenteredWidthPanel(maxContentWidth, borrowerCard), "Borrower");
         contentStack.add(new CenteredWidthPanel(maxContentWidth, loanCard), "Loans");
@@ -322,7 +325,7 @@ public class DashboardFrame extends JFrame {
         sidebar.setBorderWidth(1);
         sidebar.setLayout(new BorderLayout(0, 20));
         sidebar.setBorder(BorderFactory.createEmptyBorder(18, 18, 18, 18));
-        sidebar.setPreferredSize(new Dimension(260, 0));
+        sidebar.setPreferredSize(new Dimension(220, 0));
 
         JPanel brand = new JPanel(new BorderLayout());
         brand.setOpaque(false);

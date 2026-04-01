@@ -57,6 +57,8 @@ public class BorrowerPanel extends JPanel {
     private final JButton saveBorrowerButton = new JButton("Save Borrower");
     private final JButton cancelBorrowerButton = new JButton("Cancel");
     private final JPanel inlineFormPanel = new JPanel(new BorderLayout(0, 12));
+    private final JLabel inlineFormHelperLabel = new JLabel("", SwingConstants.LEFT);
+    private Borrower editingBorrower;
 
     private final JLabel totalBorrowersValue = new JLabel("0", SwingConstants.LEFT);
     private final JLabel totalBorrowersBody = new JLabel("", SwingConstants.LEFT);
@@ -213,6 +215,15 @@ public class BorrowerPanel extends JPanel {
         return card;
     }
 
+    private void styleHeaderActionButton(JButton button) {
+        if (button == null) {
+            return;
+        }
+        UITheme.applySecondaryButton(button);
+        button.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
+        button.setFocusPainted(false);
+    }
+
     private JPanel buildDirectoryCard() {
         RoundedPanel card = new RoundedPanel(24, UITheme.PANEL_BG);
         card.setBorderColor(UITheme.BORDER);
@@ -248,12 +259,10 @@ public class BorrowerPanel extends JPanel {
         searchField.putClientProperty("JTextField.placeholderText", "Search borrower name...");
 
         JButton addBtn = new JButton("+ New borrower");
-        UITheme.applySecondaryButton(addBtn);
-        addBtn.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
+        styleHeaderActionButton(addBtn);
         addBtn.addActionListener(e -> toggleInlineBorrowerForm(true));
 
-        UITheme.applySecondaryButton(editButton);
-        editButton.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
+        styleHeaderActionButton(editButton);
         editButton.addActionListener(e -> {
             String selectedBorrowerId = getSelectedBorrowerId();
             if (selectedBorrowerId.isEmpty()) {
@@ -268,8 +277,7 @@ public class BorrowerPanel extends JPanel {
             showEditDialog(selectedBorrowerId);
         });
 
-        UITheme.applySecondaryButton(deleteButton);
-        deleteButton.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
+        styleHeaderActionButton(deleteButton);
         deleteButton.addActionListener(e -> {
             String selectedBorrowerId = getSelectedBorrowerId();
             if (selectedBorrowerId.isEmpty()) {
@@ -329,11 +337,8 @@ public class BorrowerPanel extends JPanel {
         fields.add(createInlineField("Gmail", newGmailField));
         fields.add(createInlineField("Address", newAddressField));
 
-        JLabel helper = new JLabel(
-            "Borrower records are stored inline here. Fill in the details and save to add a new borrower.",
-            SwingConstants.LEFT
-        );
-        helper.setForeground(UITheme.TEXT_MUTED);
+        inlineFormHelperLabel.setForeground(UITheme.TEXT_MUTED);
+        updateInlineFormState();
 
         UITheme.applySecondaryButton(cancelBorrowerButton);
         cancelBorrowerButton.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
@@ -349,7 +354,7 @@ public class BorrowerPanel extends JPanel {
         actions.add(saveBorrowerButton);
 
         formShell.add(fields, BorderLayout.CENTER);
-        formShell.add(helper, BorderLayout.NORTH);
+        formShell.add(inlineFormHelperLabel, BorderLayout.NORTH);
         formShell.add(actions, BorderLayout.SOUTH);
 
         inlineFormPanel.removeAll();
@@ -613,6 +618,7 @@ public class BorrowerPanel extends JPanel {
         if (!visible) {
             clearInlineBorrowerForm();
         } else {
+            updateInlineFormState();
             newNameField.requestFocusInWindow();
         }
         revalidate();
@@ -620,9 +626,31 @@ public class BorrowerPanel extends JPanel {
     }
 
     private void clearInlineBorrowerForm() {
+        editingBorrower = null;
         newNameField.setText("");
         newGmailField.setText("");
         newAddressField.setText("");
+        updateInlineFormState();
+    }
+
+    private void updateInlineFormState() {
+        boolean editing = editingBorrower != null;
+        inlineFormHelperLabel.setText(editing
+            ? "Update the selected borrower below, then click save to apply your changes."
+            : "Borrower records are stored inline here. Fill in the details and save to add a new borrower.");
+        saveBorrowerButton.setText(editing ? "Save Changes" : "Save Borrower");
+    }
+
+    private void startInlineEdit(Borrower borrower) {
+        if (borrower == null) {
+            return;
+        }
+        editingBorrower = borrower;
+        newNameField.setText(safe(borrower.getFullName()));
+        newGmailField.setText(safe(borrower.getGmail()));
+        newAddressField.setText(safe(borrower.getAddress()));
+        updateInlineFormState();
+        toggleInlineBorrowerForm(true);
     }
 
     private void handleInlineBorrowerSave() {
@@ -640,9 +668,15 @@ public class BorrowerPanel extends JPanel {
             return;
         }
 
-        Borrower borrower = new Borrower(generateBorrowerId(), name, gmail, address);
-        borrower.setGmail(gmail);
-        borrowers.add(borrower);
+        if (editingBorrower != null) {
+            editingBorrower.setFullName(name);
+            editingBorrower.setGmail(gmail);
+            editingBorrower.setAddress(address);
+        } else {
+            Borrower borrower = new Borrower(generateBorrowerId(), name, gmail, address);
+            borrower.setGmail(gmail);
+            borrowers.add(borrower);
+        }
         saveAction.run();
         toggleInlineBorrowerForm(false);
         refreshTable();
@@ -663,23 +697,7 @@ public class BorrowerPanel extends JPanel {
         if (existing == null) {
             return;
         }
-        BorrowerForm form = new BorrowerForm();
-        form.setId(existing.getId());
-        form.setName(existing.getFullName());
-        form.setGmail(existing.getGmail());
-        form.setAddress(existing.getAddress());
-
-        int result = form.showDialog(this, "Edit Borrower");
-        if (result != JOptionPane.OK_OPTION) {
-            return;
-        }
-
-        existing.setId(form.getId());
-        existing.setFullName(form.getName());
-        existing.setGmail(form.getGmail());
-        existing.setAddress(form.getAddress());
-        saveAction.run();
-        refreshTable();
+        startInlineEdit(existing);
     }
 
     private void handleDelete(String borrowerId) {

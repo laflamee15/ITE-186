@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
@@ -79,7 +80,34 @@ public final class DatabaseManager {
                     FOREIGN KEY (loan_id) REFERENCES loans(id) ON DELETE CASCADE
                 )
                 """);
+            ensureColumnExists(connection, "borrowers", "owner_email", "TEXT");
+            ensureColumnExists(connection, "loans", "owner_email", "TEXT");
+            ensureColumnExists(connection, "payments", "owner_email", "TEXT");
+            statement.execute("CREATE INDEX IF NOT EXISTS idx_borrowers_owner_email ON borrowers(owner_email)");
+            statement.execute("CREATE INDEX IF NOT EXISTS idx_loans_owner_email ON loans(owner_email)");
+            statement.execute("CREATE INDEX IF NOT EXISTS idx_payments_owner_email ON payments(owner_email)");
         }
+    }
+
+    private static void ensureColumnExists(Connection connection, String tableName, String columnName, String columnDefinition) throws SQLException {
+        if (tableHasColumn(connection, tableName, columnName)) {
+            return;
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnDefinition);
+        }
+    }
+
+    private static boolean tableHasColumn(Connection connection, String tableName, String columnName) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery("PRAGMA table_info(" + tableName + ")")) {
+            while (resultSet.next()) {
+                if (columnName.equalsIgnoreCase(resultSet.getString("name"))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public static boolean isReady() {

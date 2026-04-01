@@ -172,7 +172,7 @@ public class AccountStore {
     }
 
     private String normalize(String email) {
-        return email == null ? "" : email.trim().toLowerCase();
+        return email == null ? "" : email.trim();
     }
 
     private Properties loadProperties() {

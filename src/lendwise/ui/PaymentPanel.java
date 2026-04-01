@@ -70,6 +70,7 @@ public class PaymentPanel extends JPanel {
     private final JPanel inlineFormPanel = new JPanel(new BorderLayout(0, 12));
     private final JLabel paymentPreviewLabel = new JLabel("", SwingConstants.LEFT);
     private final JLabel collectorHintLabel = new JLabel("", SwingConstants.RIGHT);
+    private String lastSuggestedLoanId = "";
 
     private final JLabel totalPaymentsValue = new JLabel("0", SwingConstants.LEFT);
     private final JLabel totalPaymentsBody = new JLabel("", SwingConstants.LEFT);
@@ -576,6 +577,7 @@ public class PaymentPanel extends JPanel {
             newLoanCombo.setSelectedIndex(0);
         }
         newAmountField.setText("");
+        lastSuggestedLoanId = "";
         newDateField.setText(LocalDate.now().toString());
         updatePaymentPreview();
     }
@@ -611,13 +613,31 @@ public class PaymentPanel extends JPanel {
         if (selectedLoan == null) {
             paymentPreviewLabel.setText("Remaining balance after payment: ₱0.00");
             collectorHintLabel.setText("Collector: -");
+            lastSuggestedLoanId = "";
             return;
         }
         double paid = totalPaidForBorrower(safe(selectedLoan.getBorrowerId()));
         double remaining = calculator.computeRemainingBalance(selectedLoan, paid);
+        double dueAmount = suggestedDueAmount(selectedLoan, remaining);
+        String selectedLoanId = safe(selectedLoan.getId());
+        if (newAmountField.getText().trim().isEmpty() || !selectedLoanId.equals(lastSuggestedLoanId)) {
+            newAmountField.setText(formatEditableAmount(dueAmount));
+        }
+        lastSuggestedLoanId = selectedLoanId;
         paymentPreviewLabel.setText("Remaining balance after payment: " + money(remaining));
         String collectorName = safe(selectedLoan.getCollectorName());
-        collectorHintLabel.setText("Collector: " + (collectorName.isEmpty() ? "-" : collectorName));
+        collectorHintLabel.setText("Due: " + money(dueAmount) + "  |  Collector: " + (collectorName.isEmpty() ? "-" : collectorName));
+    }
+
+    private double suggestedDueAmount(Loan loan, double remaining) {
+        if (loan == null || remaining <= 0.0) {
+            return 0.0;
+        }
+        double installment = calculator.computeMonthlyInstallment(loan);
+        if (installment <= 0.0) {
+            return remaining;
+        }
+        return Math.min(installment, remaining);
     }
 
     private void handleInlinePaymentSave() {
@@ -900,6 +920,10 @@ public class PaymentPanel extends JPanel {
         return String.format("₱%,.2f", amount);
     }
 
+    private String formatEditableAmount(double amount) {
+        return String.format("%.2f", amount);
+    }
+
     private String generatePaymentId() {
         int next = payments == null ? 1 : payments.size() + 1;
         String candidate = String.format("PM-%08d", next);
@@ -1073,3 +1097,4 @@ public class PaymentPanel extends JPanel {
         }
     }
 }
+
