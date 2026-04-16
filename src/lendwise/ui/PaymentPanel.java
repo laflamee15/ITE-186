@@ -7,24 +7,18 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
 import java.awt.GridLayout;
-import java.awt.Insets;
 import java.awt.Rectangle;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashSet;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
-import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
@@ -34,7 +28,6 @@ import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import javax.swing.plaf.basic.BasicComboBoxUI;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -51,8 +44,6 @@ public class PaymentPanel extends JPanel {
     private static final Color ORANGE = new Color(0xF9, 0x73, 0x16);
     private static final Color RED = new Color(0xF8, 0x71, 0x71);
     private static final DateTimeFormatter HUMAN_DATE = DateTimeFormatter.ofPattern("MMM dd, yyyy");
-    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("hh:mm a");
-
     private final ArrayList<Payment> payments;
     private final ArrayList<Borrower> borrowers;
     private final ArrayList<Loan> loans;
@@ -71,14 +62,15 @@ public class PaymentPanel extends JPanel {
     private final JLabel paymentPreviewLabel = new JLabel("", SwingConstants.LEFT);
     private final JLabel collectorHintLabel = new JLabel("", SwingConstants.RIGHT);
     private String lastSuggestedLoanId = "";
+    private Payment editingPayment;
 
     private final JLabel totalPaymentsValue = new JLabel("0", SwingConstants.LEFT);
     private final JLabel totalPaymentsBody = new JLabel("", SwingConstants.LEFT);
-    private final JLabel todayCollectionValue = new JLabel("₱0.00", SwingConstants.LEFT);
+    private final JLabel todayCollectionValue = new JLabel(UITheme.formatCurrency(0.0), SwingConstants.LEFT);
     private final JLabel todayCollectionBody = new JLabel("", SwingConstants.LEFT);
-    private final JLabel monthlyCollectionValue = new JLabel("₱0.00", SwingConstants.LEFT);
+    private final JLabel monthlyCollectionValue = new JLabel(UITheme.formatCurrency(0.0), SwingConstants.LEFT);
     private final JLabel monthlyCollectionBody = new JLabel("", SwingConstants.LEFT);
-    private final JLabel profitValue = new JLabel("₱0.00", SwingConstants.LEFT);
+    private final JLabel profitValue = new JLabel(UITheme.formatCurrency(0.0), SwingConstants.LEFT);
     private final JLabel profitBody = new JLabel("", SwingConstants.LEFT);
 
     public PaymentPanel(
@@ -99,7 +91,7 @@ public class PaymentPanel extends JPanel {
         setBackground(UITheme.CARD);
 
         tableModel = new DefaultTableModel(
-            new Object[]{"PAYMENT ID", "LOAN #", "BORROWER", "AMOUNT", "DATE", "RECORDED AT"}, 0
+            new Object[]{"PAYMENT ID", "LOAN #", "BORROWER", "AMOUNT", "DATE", "METHOD"}, 0
         ) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -166,12 +158,7 @@ public class PaymentPanel extends JPanel {
             title.setFont(titleFont.deriveFont(Font.BOLD, 28f));
         }
 
-        JLabel subtitle = new JLabel("Track installment payments and automatically update balances.", SwingConstants.LEFT);
-        subtitle.setForeground(UITheme.TEXT_MUTED);
-
         left.add(title);
-        left.add(Box.createVerticalStrut(4));
-        left.add(subtitle);
 
         wrapper.add(left, BorderLayout.WEST);
         return wrapper;
@@ -248,23 +235,13 @@ public class PaymentPanel extends JPanel {
             title.setFont(titleFont.deriveFont(Font.BOLD, 22f));
         }
 
-        JLabel subtitle = new JLabel(
-            "Record installment payments and automatically update loan balances in real time.",
-            SwingConstants.LEFT
-        );
-        subtitle.setForeground(UITheme.TEXT_MUTED);
-
         left.add(title);
-        left.add(Box.createVerticalStrut(4));
-        left.add(subtitle);
 
         JButton addButton = new JButton("+ Record payment");
-        UITheme.applySecondaryButton(addButton);
-        addButton.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
+        styleHeaderActionButton(addButton, true);
         addButton.addActionListener(e -> toggleInlinePaymentForm(true));
 
-        UITheme.applySecondaryButton(editButton);
-        editButton.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
+        styleHeaderActionButton(editButton, false);
         editButton.addActionListener(e -> {
             int selectedIndex = getSelectedPaymentIndex();
             if (selectedIndex < 0) {
@@ -279,8 +256,7 @@ public class PaymentPanel extends JPanel {
             showEditDialog(selectedIndex);
         });
 
-        UITheme.applySecondaryButton(deleteButton);
-        deleteButton.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
+        styleHeaderActionButton(deleteButton, false);
         deleteButton.addActionListener(e -> {
             if (getSelectedPaymentIndex() < 0) {
                 JOptionPane.showMessageDialog(
@@ -325,6 +301,10 @@ public class PaymentPanel extends JPanel {
         return card;
     }
 
+    private void styleHeaderActionButton(JButton button, boolean primary) {
+        UITheme.applyHeaderActionButton(button, primary);
+    }
+
     public void refreshTable() {
         tableModel.setRowCount(0);
 
@@ -350,16 +330,16 @@ public class PaymentPanel extends JPanel {
                     monthlyCollection += payment.getAmount();
                 }
 
-                Loan loan = findLoanByBorrowerId(payment.getLoanId());
+                Loan loan = findLoanById(payment.getLoanId());
                 totalProfit += estimateProfitPortion(payment, loan);
 
                 tableModel.addRow(new Object[]{
                     safe(payment.getId()),
                     resolveLoanNumber(payment.getLoanId()),
-                    resolveBorrowerName(payment.getLoanId()),
+                    resolveBorrowerNameForLoan(payment.getLoanId()),
                     money(payment.getAmount()),
                     paymentDate == null ? "" : HUMAN_DATE.format(paymentDate),
-                    resolveRecordedTime(payment)
+                    safe(payment.getMethod())
                 });
             }
         }
@@ -458,7 +438,7 @@ public class PaymentPanel extends JPanel {
         JPanel fields = new JPanel(new GridLayout(1, 3, 10, 8));
         fields.setOpaque(false);
         fields.add(createInlineField("Loan", newLoanCombo));
-        fields.add(createInlineField("Amount (₱)", newAmountField));
+        fields.add(createInlineField("Amount (\u20B1)", newAmountField));
         fields.add(createInlineField("Payment date", newDateField));
 
         JPanel hints = new JPanel(new BorderLayout());
@@ -573,12 +553,14 @@ public class PaymentPanel extends JPanel {
     }
 
     private void clearInlinePaymentForm() {
+        editingPayment = null;
         if (newLoanCombo.getItemCount() > 0) {
             newLoanCombo.setSelectedIndex(0);
         }
         newAmountField.setText("");
         lastSuggestedLoanId = "";
         newDateField.setText(LocalDate.now().toString());
+        savePaymentButton.setText("Save Payment");
         updatePaymentPreview();
     }
 
@@ -611,12 +593,12 @@ public class PaymentPanel extends JPanel {
     private void updatePaymentPreview() {
         Loan selectedLoan = resolveSelectedLoan();
         if (selectedLoan == null) {
-            paymentPreviewLabel.setText("Remaining balance after payment: ₱0.00");
+            paymentPreviewLabel.setText("Remaining balance after payment: " + money(0.0));
             collectorHintLabel.setText("Collector: -");
             lastSuggestedLoanId = "";
             return;
         }
-        double paid = totalPaidForBorrower(safe(selectedLoan.getBorrowerId()));
+        double paid = totalPaidForLoan(safe(selectedLoan.getId()));
         double remaining = calculator.computeRemainingBalance(selectedLoan, paid);
         double dueAmount = suggestedDueAmount(selectedLoan, remaining);
         String selectedLoanId = safe(selectedLoan.getId());
@@ -633,11 +615,9 @@ public class PaymentPanel extends JPanel {
         if (loan == null || remaining <= 0.0) {
             return 0.0;
         }
-        double installment = calculator.computeMonthlyInstallment(loan);
-        if (installment <= 0.0) {
-            return remaining;
-        }
-        return Math.min(installment, remaining);
+        double paid = totalPaidForLoan(safe(loan.getId()));
+        double dueAmount = calculator.computeCurrentInstallmentDue(loan, paid);
+        return dueAmount <= 0.0 ? remaining : Math.min(dueAmount, remaining);
     }
 
     private void handleInlinePaymentSave() {
@@ -649,10 +629,23 @@ public class PaymentPanel extends JPanel {
 
             double amount = Double.parseDouble(newAmountField.getText().trim());
             LocalDate date = LocalDate.parse(newDateField.getText().trim());
-            String borrowerId = safe(selectedLoan.getBorrowerId());
+            String loanId = safe(selectedLoan.getId());
+            String previousLoanId = editingPayment == null ? "" : safe(editingPayment.getLoanId());
+            validatePaymentAmount(selectedLoan, amount, date);
 
-            payments.add(new Payment(generatePaymentId(), borrowerId, amount, date, "CASH"));
-            updateLoanAfterPayment(borrowerId);
+            if (editingPayment != null) {
+                editingPayment.setLoanId(loanId);
+                editingPayment.setAmount(amount);
+                editingPayment.setPaymentDate(date);
+                editingPayment.setMethod("CASH");
+            } else {
+                payments.add(new Payment(generatePaymentId(), loanId, amount, date, "CASH"));
+            }
+
+            if (!previousLoanId.isEmpty() && !previousLoanId.equalsIgnoreCase(loanId)) {
+                updateLoanAfterPayment(previousLoanId);
+            }
+            updateLoanAfterPayment(loanId);
             saveAction.run();
             toggleInlinePaymentForm(false);
             refreshTable();
@@ -660,6 +653,17 @@ public class PaymentPanel extends JPanel {
             JOptionPane.showMessageDialog(
                 this,
                 "Please select a loan and enter a valid amount and date (yyyy-MM-dd).",
+                "Payment",
+                JOptionPane.WARNING_MESSAGE
+            );
+        } catch (IllegalArgumentException ex) {
+            String message = safe(ex.getMessage()).trim();
+            if (message.isEmpty() || "loan".equalsIgnoreCase(message) || "amount".equalsIgnoreCase(message) || "paid".equalsIgnoreCase(message)) {
+                message = "Please select a loan and enter a valid payment amount and date.";
+            }
+            JOptionPane.showMessageDialog(
+                this,
+                message,
                 "Payment",
                 JOptionPane.WARNING_MESSAGE
             );
@@ -671,36 +675,7 @@ public class PaymentPanel extends JPanel {
         if (existing == null) {
             return;
         }
-
-        PaymentForm form = new PaymentForm(loans);
-        form.fromPayment(existing);
-        int result = form.showDialog(this, "Edit Payment");
-        if (result != JOptionPane.OK_OPTION) {
-            return;
-        }
-
-        Payment updated = form.toPayment();
-        if (updated == null) {
-            JOptionPane.showMessageDialog(
-                this,
-                "Please enter valid amount and date (yyyy-MM-dd).",
-                "Payment",
-                JOptionPane.WARNING_MESSAGE
-            );
-            return;
-        }
-
-        String oldBorrowerId = existing.getLoanId();
-        existing.setId(updated.getId());
-        existing.setLoanId(updated.getLoanId());
-        existing.setAmount(updated.getAmount());
-        existing.setPaymentDate(updated.getPaymentDate());
-        existing.setMethod(updated.getMethod());
-
-        updateLoanAfterPayment(oldBorrowerId);
-        updateLoanAfterPayment(updated.getLoanId());
-        saveAction.run();
-        refreshTable();
+        startInlineEdit(existing);
     }
 
     private void handleDelete() {
@@ -730,9 +705,9 @@ public class PaymentPanel extends JPanel {
             return;
         }
 
-        String borrowerId = existing.getLoanId();
+        String loanId = existing.getLoanId();
         payments.remove(existing);
-        updateLoanAfterPayment(borrowerId);
+        updateLoanAfterPayment(loanId);
         saveAction.run();
         refreshTable();
     }
@@ -776,31 +751,26 @@ public class PaymentPanel extends JPanel {
         return null;
     }
 
-    private void updateLoanAfterPayment(String borrowerId) {
-        if (borrowerId == null || borrowerId.trim().isEmpty()) {
+    private void updateLoanAfterPayment(String loanId) {
+        if (loanId == null || loanId.trim().isEmpty()) {
             return;
         }
 
-        Loan loan = findLoanByBorrowerId(borrowerId);
+        Loan loan = findLoanById(loanId);
         if (loan == null) {
             return;
         }
 
         double totalPaid = 0.0;
-        int paymentCount = 0;
         for (Payment payment : payments) {
-            if (payment != null && borrowerId.equals(payment.getLoanId())) {
+            if (payment != null && loanId.equalsIgnoreCase(safe(payment.getLoanId()))) {
                 totalPaid += payment.getAmount();
-                paymentCount++;
             }
         }
 
         double remaining = calculator.computeRemainingBalance(loan, totalPaid);
         int originalTerm = loan.getOriginalTermMonths();
-        int remainingTerm = originalTerm - paymentCount;
-        if (remainingTerm < 0) {
-            remainingTerm = 0;
-        }
+        int remainingTerm = calculator.computeRemainingTermMonths(loan, totalPaid);
         loan.setTermMonths(remainingTerm);
 
         if (remaining <= 0.0) {
@@ -819,29 +789,93 @@ public class PaymentPanel extends JPanel {
         }
     }
 
-    private Loan findLoanByBorrowerId(String borrowerId) {
-        if (loans == null || borrowerId == null) {
+    private Loan findLoanById(String loanId) {
+        if (loans == null || loanId == null) {
             return null;
         }
         for (Loan loan : loans) {
-            if (loan != null && borrowerId.equalsIgnoreCase(safe(loan.getBorrowerId()))) {
+            if (loan != null && loanId.equalsIgnoreCase(safe(loan.getId()))) {
                 return loan;
             }
         }
         return null;
     }
 
-    private double totalPaidForBorrower(String borrowerId) {
+    private double totalPaidForLoan(String loanId) {
         double total = 0.0;
         if (payments == null) {
             return total;
         }
         for (Payment payment : payments) {
-            if (payment != null && borrowerId.equalsIgnoreCase(safe(payment.getLoanId()))) {
+            if (payment != null && loanId.equalsIgnoreCase(safe(payment.getLoanId()))) {
+                if (editingPayment != null && payment == editingPayment) {
+                    continue;
+                }
                 total += payment.getAmount();
             }
         }
         return total;
+    }
+
+    private void validatePaymentAmount(Loan loan, double amount, LocalDate paymentDate) {
+        if (loan == null) {
+            throw new IllegalArgumentException("loan");
+        }
+        if (amount <= 0.0) {
+            throw new IllegalArgumentException("amount");
+        }
+
+        double paidBeforeThisEntry = totalPaidForLoan(safe(loan.getId()));
+        double remaining = calculator.computeRemainingBalance(loan, paidBeforeThisEntry);
+        if (remaining <= 0.0) {
+            throw new IllegalArgumentException("paid");
+        }
+
+        LocalDate nextDueDate = nextDueDateFor(loan, paidBeforeThisEntry);
+        double dueAmount = calculator.computeCurrentInstallmentDue(loan, paidBeforeThisEntry);
+        if (dueAmount <= 0.0) {
+            dueAmount = remaining;
+        }
+
+        if (nextDueDate != null && isDueMonthOrLater(paymentDate, nextDueDate)) {
+            double normalizedAmount = roundCurrency(amount);
+            double normalizedDue = roundCurrency(Math.min(dueAmount, remaining));
+            if (Math.abs(normalizedAmount - normalizedDue) > 0.009) {
+                throw new IllegalArgumentException(
+                    "Payment for the due month must exactly match the current amount due: " + money(normalizedDue)
+                );
+            }
+            return;
+        }
+
+        if (amount - remaining > 0.009) {
+            throw new IllegalArgumentException("amount");
+        }
+    }
+
+    private LocalDate nextDueDateFor(Loan loan, double amountPaid) {
+        if (loan == null || loan.getStartDate() == null || loan.getOriginalTermMonths() <= 0) {
+            return null;
+        }
+        int remainingTerms = calculator.computeRemainingTermMonths(loan, amountPaid);
+        if (remainingTerms <= 0) {
+            return null;
+        }
+        int completedTerms = Math.max(0, loan.getOriginalTermMonths() - remainingTerms);
+        return loan.getStartDate().plusMonths(completedTerms + 1L);
+    }
+
+    private boolean isDueMonthOrLater(LocalDate paymentDate, LocalDate dueDate) {
+        if (paymentDate == null || dueDate == null) {
+            return false;
+        }
+        YearMonth paymentMonth = YearMonth.from(paymentDate);
+        YearMonth dueMonth = YearMonth.from(dueDate);
+        return !paymentMonth.isBefore(dueMonth);
+    }
+
+    private double roundCurrency(double amount) {
+        return Math.round(amount * 100.0) / 100.0;
     }
 
     private void selectLoanOption(String loanId) {
@@ -869,6 +903,11 @@ public class PaymentPanel extends JPanel {
         return borrowerName.isEmpty() ? loanId : loanId + " - " + borrowerName;
     }
 
+    private String resolveBorrowerNameForLoan(String loanId) {
+        Loan loan = findLoanById(loanId);
+        return loan == null ? safe(loanId) : resolveBorrowerName(safe(loan.getBorrowerId()));
+    }
+
     private String resolveBorrowerName(String borrowerId) {
         if (borrowers == null || borrowerId == null) {
             return safe(borrowerId);
@@ -882,22 +921,9 @@ public class PaymentPanel extends JPanel {
         return safe(borrowerId);
     }
 
-    private String resolveLoanNumber(String borrowerId) {
-        Loan loan = findLoanByBorrowerId(borrowerId);
+    private String resolveLoanNumber(String loanId) {
+        Loan loan = findLoanById(loanId);
         return loan == null ? "" : safe(loan.getId());
-    }
-
-    private String resolveRecordedTime(Payment payment) {
-        if (payment == null) {
-            return "";
-        }
-        LocalDate paymentDate = payment.getPaymentDate();
-        if (paymentDate == null) {
-            return "";
-        }
-        int seed = Math.abs(safe(payment.getId()).hashCode());
-        LocalTime time = LocalTime.of((seed % 12) + 8, seed % 60);
-        return TIME_FMT.format(time);
     }
 
     private double estimateProfitPortion(Payment payment, Loan loan) {
@@ -917,7 +943,7 @@ public class PaymentPanel extends JPanel {
     }
 
     private String money(double amount) {
-        return String.format("₱%,.2f", amount);
+        return UITheme.formatCurrency(amount);
     }
 
     private String formatEditableAmount(double amount) {
@@ -946,155 +972,18 @@ public class PaymentPanel extends JPanel {
         return null;
     }
 
-    private static class PaymentForm {
-        private final JTextField idField = new JTextField(12);
-        private final JComboBox<String> borrowerIdCombo = new JComboBox<>();
-        private final JTextField amountField = new JTextField(10);
-        private final JTextField dateField = new JTextField(10);
-        private final JTextField methodField = new JTextField(10);
-
-        PaymentForm(ArrayList<Loan> loans) {
-            borrowerIdCombo.setEditable(false);
-            borrowerIdCombo.addItem("");
-
-            if (loans != null) {
-                HashSet<String> seenIds = new HashSet<>();
-                for (Loan loan : loans) {
-                    if (loan == null) {
-                        continue;
-                    }
-                    String id = loan.getBorrowerId();
-                    if (id == null) {
-                        continue;
-                    }
-                    id = id.trim();
-                    if (!id.isEmpty() && seenIds.add(id)) {
-                        borrowerIdCombo.addItem(id);
-                    }
-                }
-            }
+    private void startInlineEdit(Payment payment) {
+        if (payment == null) {
+            return;
         }
-
-        int showDialog(JPanel parent, String title) {
-            java.awt.Window owner = SwingUtilities.getWindowAncestor(parent);
-            JDialog dialog = new JDialog(owner);
-            dialog.setTitle(title);
-            dialog.setModal(true);
-
-            JPanel panel = new JPanel(new GridBagLayout());
-            panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-            GridBagConstraints gbc = new GridBagConstraints();
-            gbc.insets = new Insets(4, 4, 4, 4);
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-
-            gbc.gridx = 0;
-            gbc.gridy = 0;
-            gbc.weightx = 0;
-            panel.add(new JLabel("Payment ID:"), gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1;
-            panel.add(idField, gbc);
-
-            gbc.gridx = 0;
-            gbc.gridy = 1;
-            gbc.weightx = 0;
-            panel.add(new JLabel("Borrower ID:"), gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1;
-            panel.add(borrowerIdCombo, gbc);
-
-            gbc.gridx = 0;
-            gbc.gridy = 2;
-            gbc.weightx = 0;
-            panel.add(new JLabel("Amount:"), gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1;
-            panel.add(amountField, gbc);
-
-            gbc.gridx = 0;
-            gbc.gridy = 3;
-            gbc.weightx = 0;
-            panel.add(new JLabel("Payment Date (yyyy-MM-dd):"), gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1;
-            panel.add(dateField, gbc);
-
-            gbc.gridx = 0;
-            gbc.gridy = 4;
-            gbc.weightx = 0;
-            panel.add(new JLabel("Method:"), gbc);
-
-            gbc.gridx = 1;
-            gbc.weightx = 1;
-            panel.add(methodField, gbc);
-
-            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            JButton ok = new JButton("OK");
-            JButton cancel = new JButton("Cancel");
-            buttons.add(ok);
-            buttons.add(cancel);
-
-            ok.addActionListener(e -> {
-                dialog.setVisible(false);
-                dialog.dispose();
-            });
-            cancel.addActionListener(e -> {
-                idField.putClientProperty("cancelled", Boolean.TRUE);
-                dialog.setVisible(false);
-                dialog.dispose();
-            });
-
-            JPanel root = new JPanel(new BorderLayout(8, 8));
-            root.add(panel, BorderLayout.CENTER);
-            root.add(buttons, BorderLayout.SOUTH);
-
-            dialog.setContentPane(root);
-            dialog.pack();
-            dialog.setLocationRelativeTo(owner != null ? owner : parent);
-            dialog.setVisible(true);
-
-            Boolean cancelled = (Boolean) idField.getClientProperty("cancelled");
-            idField.putClientProperty("cancelled", null);
-            return Boolean.TRUE.equals(cancelled) ? JOptionPane.CANCEL_OPTION : JOptionPane.OK_OPTION;
-        }
-
-        void fromPayment(Payment payment) {
-            if (payment == null) {
-                return;
-            }
-            idField.setText(payment.getId());
-            borrowerIdCombo.setSelectedItem(payment.getLoanId());
-            amountField.setText(Double.toString(payment.getAmount()));
-            dateField.setText(payment.getPaymentDate() == null ? "" : payment.getPaymentDate().toString());
-            methodField.setText(payment.getMethod() == null ? "" : payment.getMethod());
-        }
-
-        Payment toPayment() {
-            try {
-                String id = idField.getText().trim();
-                if (id.isEmpty()) {
-                    id = "PM-" + System.currentTimeMillis();
-                }
-                String loanId = borrowerIdCombo.getSelectedItem() == null
-                    ? ""
-                    : borrowerIdCombo.getSelectedItem().toString().trim();
-                double amount = Double.parseDouble(amountField.getText().trim());
-                LocalDate date = null;
-                String dateText = dateField.getText().trim();
-                if (!dateText.isEmpty()) {
-                    date = LocalDate.parse(dateText);
-                }
-                String method = methodField.getText().trim();
-                return new Payment(id, loanId, amount, date, method);
-            } catch (NumberFormatException | java.time.format.DateTimeParseException ex) {
-                return null;
-            }
-        }
+        editingPayment = payment;
+        refreshLoanOptions();
+        selectLoanOption(safe(payment.getLoanId()));
+        newAmountField.setText(formatEditableAmount(payment.getAmount()));
+        newDateField.setText(payment.getPaymentDate() == null ? LocalDate.now().toString() : payment.getPaymentDate().toString());
+        savePaymentButton.setText("Save Changes");
+        updatePaymentPreview();
+        toggleInlinePaymentForm(true);
     }
 }
 

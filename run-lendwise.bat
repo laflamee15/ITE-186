@@ -7,7 +7,7 @@ if not exist build (
     if errorlevel 1 exit /b 1
 )
 
-if not exist lib (
+if not exist lib (emman
     mkdir lib
 )
 

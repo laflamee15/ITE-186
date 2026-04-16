@@ -12,6 +12,8 @@ public class Borrower implements Serializable {
     // Keep the original field name so existing serialized borrower data still loads.
     private String contactNumber;
     private String address;
+    private String linkedAccountEmail;
+    private String governmentIdPhotoPath;
     private List<Loan> loans;
 
     public Borrower() {
@@ -23,6 +25,8 @@ public class Borrower implements Serializable {
         this.name = name;
         this.contactNumber = contactNumber;
         this.address = address;
+        this.linkedAccountEmail = "";
+        this.governmentIdPhotoPath = "";
         this.loans = new ArrayList<>();
     }
 
@@ -31,6 +35,18 @@ public class Borrower implements Serializable {
         this.name = name;
         this.contactNumber = contactNumber;
         this.address = address;
+        this.linkedAccountEmail = "";
+        this.governmentIdPhotoPath = "";
+        this.loans = loans == null ? new ArrayList<>() : loans;
+    }
+
+    public Borrower(String id, String name, String contactNumber, String address, String linkedAccountEmail, List<Loan> loans) {
+        this.id = id;
+        this.name = name;
+        this.contactNumber = contactNumber;
+        this.address = address;
+        this.linkedAccountEmail = linkedAccountEmail == null ? "" : linkedAccountEmail;
+        this.governmentIdPhotoPath = "";
         this.loans = loans == null ? new ArrayList<>() : loans;
     }
 
@@ -83,6 +99,22 @@ public class Borrower implements Serializable {
         this.address = address;
     }
 
+    public String getLinkedAccountEmail() {
+        return linkedAccountEmail == null ? "" : linkedAccountEmail;
+    }
+
+    public void setLinkedAccountEmail(String linkedAccountEmail) {
+        this.linkedAccountEmail = linkedAccountEmail == null ? "" : linkedAccountEmail;
+    }
+
+    public String getGovernmentIdPhotoPath() {
+        return governmentIdPhotoPath == null ? "" : governmentIdPhotoPath;
+    }
+
+    public void setGovernmentIdPhotoPath(String governmentIdPhotoPath) {
+        this.governmentIdPhotoPath = governmentIdPhotoPath == null ? "" : governmentIdPhotoPath;
+    }
+
     public List<Loan> getLoans() {
         if (loans == null) {
             loans = new ArrayList<>();
@@ -108,4 +140,3 @@ public class Borrower implements Serializable {
         loans.remove(loan);
     }
 }
-

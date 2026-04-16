@@ -36,6 +36,11 @@ public class RoundedPanel extends JPanel {
         repaint();
     }
 
+    public void setFillColor(Color fillColor) {
+        this.fillColor = fillColor;
+        repaint();
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g.create();

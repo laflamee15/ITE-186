@@ -21,9 +21,6 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
-import javax.swing.JMenu;
-import javax.swing.JMenuBar;
-import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
@@ -57,7 +54,6 @@ public class DashboardFrame extends JFrame {
     private final AppDataStore appDataStore;
     private final GmailReminderService gmailReminderService = new GmailReminderService();
     private final OverdueReminderService overdueReminderService = new OverdueReminderService();
-    private final JLabel loanStatusLabel = new JLabel("Loan Status: (select a loan)", SwingConstants.LEFT);
     private final String username;
     private final String accountEmail;
     private String currentView = "Dashboard";
@@ -76,7 +72,6 @@ public class DashboardFrame extends JFrame {
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         UITheme.installTableDefaults();
         appDataStore.loadInto(borrowers, loans, payments);
-        setJMenuBar(buildMenuBar());
         setContentPane(buildContent());
         javax.swing.SwingUtilities.invokeLater(this::promptForOverdueReminders);
     }
@@ -95,25 +90,28 @@ public class DashboardFrame extends JFrame {
         JPanel header = buildWelcomeHeader();
 
         JButton themeToggleButton = new JButton(UITheme.isLightMode() ? "Dark Mode" : "Light Mode");
-        UITheme.applySecondaryButton(themeToggleButton);
-        themeToggleButton.setBorder(new RoundedButtonBorder(18, UITheme.BORDER, false));
+        UITheme.applyHeaderActionButton(themeToggleButton, false);
         themeToggleButton.addActionListener(e -> {
             UITheme.toggleMode();
-            setJMenuBar(buildMenuBar());
             setContentPane(buildContent());
             revalidate();
             repaint();
         });
 
+        JPanel headerActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        headerActions.setOpaque(false);
+        headerActions.add(themeToggleButton);
+
         JPanel headerRow = new JPanel(new BorderLayout());
         headerRow.setOpaque(false);
         headerRow.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
         headerRow.add(header, BorderLayout.WEST);
-        headerRow.add(themeToggleButton, BorderLayout.EAST);
+        headerRow.add(headerActions, BorderLayout.EAST);
 
         final Runnable[] borrowerSaveRef = new Runnable[1];
         final Runnable[] loanSaveRef = new Runnable[1];
         final Runnable[] paymentSaveRef = new Runnable[1];
+        final Runnable[] transactionSaveRef = new Runnable[1];
         Runnable borrowerSaveAction = () -> {
             if (borrowerSaveRef[0] != null) {
                 borrowerSaveRef[0].run();
@@ -129,17 +127,38 @@ public class DashboardFrame extends JFrame {
                 paymentSaveRef[0].run();
             }
         };
+        Runnable transactionSaveAction = () -> {
+            if (transactionSaveRef[0] != null) {
+                transactionSaveRef[0].run();
+            }
+        };
 
         BorrowerPanel borrowerPanel = new BorrowerPanel(borrowers, loans, payments, loanCalculator, username, borrowerSaveAction);
-        LoanPanel loanPanel = new LoanPanel(borrowers, loans, payments, loanCalculator, username, loanSaveAction);
+        LoanPanel loanPanel = new LoanPanel(
+            borrowers,
+            loans,
+            payments,
+            loanCalculator,
+            username,
+            loanSaveAction,
+            this::sendOverdueReminders
+        );
         PaymentPanel paymentPanel = new PaymentPanel(borrowers, payments, loans, loanCalculator, paymentSaveAction);
         DashboardPanel dashboardPanel = new DashboardPanel(borrowers, loans, payments, loanCalculator, username);
+        AdminTransactionHistoryPanel transactionHistoryPanel = new AdminTransactionHistoryPanel(
+            borrowers,
+            loans,
+            payments,
+            loanCalculator,
+            transactionSaveAction
+        );
         Runnable refreshAll = () -> {
             appDataStore.save(borrowers, loans, payments);
             borrowerPanel.refreshTable();
             loanPanel.refreshTable();
             paymentPanel.refreshTable();
             dashboardPanel.refresh();
+            transactionHistoryPanel.refresh();
             refreshOverdueReminderPromptState();
         };
         borrowerSaveRef[0] = refreshAll;
@@ -151,20 +170,12 @@ public class DashboardFrame extends JFrame {
             refreshAll.run();
             processAutomaticReminders(false, true);
         };
+        transactionSaveRef[0] = refreshAll;
         borrowerPanel.refreshTable();
         loanPanel.refreshTable();
         paymentPanel.refreshTable();
         dashboardPanel.refresh();
-
-        loanPanel.setSelectionListener(selected -> {
-            if (selected == null) {
-                loanStatusLabel.setText("Loan Status: (select a loan)");
-                return;
-            }
-            String status = selected.getStatus() == null ? "" : selected.getStatus().trim();
-            if (status.isEmpty()) status = "(unknown)";
-            loanStatusLabel.setText("Loan Status: " + status + "  |  Loan ID: " + safe(selected.getId()));
-        });
+        transactionHistoryPanel.refresh();
 
         RoundedPanel borrowerCard = new RoundedPanel(40, UITheme.CARD);
         borrowerCard.setBorderColor(UITheme.BORDER);
@@ -194,6 +205,13 @@ public class DashboardFrame extends JFrame {
         UITheme.applyCardPadding(paymentCard);
         paymentCard.add(paymentPanel, BorderLayout.CENTER);
 
+        RoundedPanel transactionHistoryCard = new RoundedPanel(40, UITheme.CARD);
+        transactionHistoryCard.setBorderColor(UITheme.BORDER);
+        transactionHistoryCard.setBorderWidth(1);
+        transactionHistoryCard.setLayout(new BorderLayout());
+        UITheme.applyCardPadding(transactionHistoryCard);
+        transactionHistoryCard.add(transactionHistoryPanel, BorderLayout.CENTER);
+
         CardLayout contentLayout = new CardLayout();
         JPanel contentStack = new JPanel(contentLayout);
         contentStack.setOpaque(false);
@@ -202,70 +220,73 @@ public class DashboardFrame extends JFrame {
         contentStack.add(new CenteredWidthPanel(maxContentWidth, borrowerCard), "Borrower");
         contentStack.add(new CenteredWidthPanel(maxContentWidth, loanCard), "Loans");
         contentStack.add(new CenteredWidthPanel(maxContentWidth, paymentCard), "Payments");
+        contentStack.add(new CenteredWidthPanel(maxContentWidth, transactionHistoryCard), "Transactions");
 
         JButton dashboardButton = createSidebarButton("Dashboard", null);
         JButton borrowerButton = createSidebarButton("Borrowers", null);
         JButton loansButton = createSidebarButton("Loans", null);
         JButton paymentsButton = createSidebarButton("Payments", null);
+        JButton transactionsButton = createSidebarButton("Transaction History", null);
 
         dashboardButton.addActionListener(e -> {
             currentView = "Dashboard";
             contentLayout.show(contentStack, "Dashboard");
             dashboardPanel.refresh();
-            setSelectedSidebarButton(dashboardButton, borrowerButton, loansButton, paymentsButton);
+            setSelectedSidebarButton(dashboardButton, borrowerButton, loansButton, paymentsButton, transactionsButton);
         });
         borrowerButton.addActionListener(e -> {
             currentView = "Borrower";
             contentLayout.show(contentStack, "Borrower");
-            setSelectedSidebarButton(borrowerButton, dashboardButton, loansButton, paymentsButton);
+            setSelectedSidebarButton(borrowerButton, dashboardButton, loansButton, paymentsButton, transactionsButton);
         });
         loansButton.addActionListener(e -> {
             currentView = "Loans";
             contentLayout.show(contentStack, "Loans");
-            setSelectedSidebarButton(loansButton, dashboardButton, borrowerButton, paymentsButton);
+            setSelectedSidebarButton(loansButton, dashboardButton, borrowerButton, paymentsButton, transactionsButton);
         });
         paymentsButton.addActionListener(e -> {
             currentView = "Payments";
             contentLayout.show(contentStack, "Payments");
-            setSelectedSidebarButton(paymentsButton, dashboardButton, borrowerButton, loansButton);
+            setSelectedSidebarButton(paymentsButton, dashboardButton, borrowerButton, loansButton, transactionsButton);
+        });
+        transactionsButton.addActionListener(e -> {
+            currentView = "Transactions";
+            contentLayout.show(contentStack, "Transactions");
+            transactionHistoryPanel.refresh();
+            setSelectedSidebarButton(transactionsButton, dashboardButton, borrowerButton, loansButton, paymentsButton);
         });
 
-        JPanel sidebar = buildSidebar(dashboardButton, borrowerButton, loansButton, paymentsButton);
+        JPanel sidebar = buildSidebar(dashboardButton, borrowerButton, loansButton, paymentsButton, transactionsButton);
         switch (currentView) {
             case "Borrower" -> {
                 contentLayout.show(contentStack, "Borrower");
-                setSelectedSidebarButton(borrowerButton, dashboardButton, loansButton, paymentsButton);
+                setSelectedSidebarButton(borrowerButton, dashboardButton, loansButton, paymentsButton, transactionsButton);
             }
             case "Loans" -> {
                 contentLayout.show(contentStack, "Loans");
-                setSelectedSidebarButton(loansButton, dashboardButton, borrowerButton, paymentsButton);
+                setSelectedSidebarButton(loansButton, dashboardButton, borrowerButton, paymentsButton, transactionsButton);
             }
             case "Payments" -> {
                 contentLayout.show(contentStack, "Payments");
-                setSelectedSidebarButton(paymentsButton, dashboardButton, borrowerButton, loansButton);
+                setSelectedSidebarButton(paymentsButton, dashboardButton, borrowerButton, loansButton, transactionsButton);
+            }
+            case "Transactions" -> {
+                contentLayout.show(contentStack, "Transactions");
+                transactionHistoryPanel.refresh();
+                setSelectedSidebarButton(transactionsButton, dashboardButton, borrowerButton, loansButton, paymentsButton);
             }
             default -> {
                 currentView = "Dashboard";
                 contentLayout.show(contentStack, "Dashboard");
                 dashboardPanel.refresh();
-                setSelectedSidebarButton(dashboardButton, borrowerButton, loansButton, paymentsButton);
+                setSelectedSidebarButton(dashboardButton, borrowerButton, loansButton, paymentsButton, transactionsButton);
             }
         }
-
-        JPanel statusBar = new JPanel(new BorderLayout());
-        statusBar.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createEmptyBorder(8, 8, 8, 8),
-            BorderFactory.createMatteBorder(1, 0, 0, 0, UITheme.BORDER)
-        ));
-        statusBar.setBackground(UITheme.CARD);
-        statusBar.add(loanStatusLabel, BorderLayout.WEST);
-        loanStatusLabel.setForeground(UITheme.TEXT_MUTED);
 
         JPanel contentArea = new JPanel(new BorderLayout(0, 10));
         contentArea.setOpaque(false);
         contentArea.add(headerRow, BorderLayout.NORTH);
         contentArea.add(contentStack, BorderLayout.CENTER);
-        contentArea.add(statusBar, BorderLayout.SOUTH);
 
         shell.add(sidebar, BorderLayout.WEST);
         shell.add(contentArea, BorderLayout.CENTER);
@@ -279,9 +300,9 @@ public class DashboardFrame extends JFrame {
         header.setOpaque(false);
 
         JLabel welcomeLabel = new JLabel("Welcome,");
-        Font baseFont = welcomeLabel.getFont();
-        if (baseFont != null) {
-            welcomeLabel.setFont(baseFont.deriveFont(Font.BOLD, 18f));
+        Font welcomeFont = welcomeLabel.getFont();
+        if (welcomeFont != null) {
+            welcomeLabel.setFont(welcomeFont.deriveFont(Font.BOLD, 18f));
         }
         welcomeLabel.setForeground(UITheme.TEXT);
 
@@ -294,18 +315,12 @@ public class DashboardFrame extends JFrame {
         userBadge.setBorder(BorderFactory.createEmptyBorder(7, 16, 7, 16));
 
         JLabel userLabel = new JLabel(username);
-        Font userFont = userLabel.getFont();
-        if (userFont != null) {
-            userLabel.setFont(userFont.deriveFont(Font.BOLD, 16f));
-        }
+        userLabel.setFont(UITheme.UI_FONT_MEDIUM.deriveFont(16f));
         userLabel.setForeground(BRAND_BLUE);
         userBadge.add(userLabel, BorderLayout.CENTER);
 
         JLabel brandLabel = new JLabel("| LendWise");
-        Font brandFont = brandLabel.getFont();
-        if (brandFont != null) {
-            brandLabel.setFont(brandFont.deriveFont(Font.PLAIN, 16f));
-        }
+        brandLabel.setFont(UITheme.UI_FONT.deriveFont(16f));
         brandLabel.setForeground(UITheme.TEXT_MUTED);
 
         header.add(welcomeLabel);
@@ -318,7 +333,8 @@ public class DashboardFrame extends JFrame {
             JButton dashboardButton,
             JButton borrowerButton,
             JButton loansButton,
-            JButton paymentsButton
+            JButton paymentsButton,
+            JButton transactionsButton
     ) {
         RoundedPanel sidebar = new RoundedPanel(30, sidebarBackground());
         sidebar.setBorderColor(UITheme.BORDER);
@@ -334,15 +350,15 @@ public class DashboardFrame extends JFrame {
         brandText.setOpaque(false);
         JLabel brandTitle = new JLabel("LendWise");
         brandTitle.setForeground(sidebarText());
-        Font brandFont = brandTitle.getFont();
-        if (brandFont != null) {
-            brandTitle.setFont(brandFont.deriveFont(Font.BOLD, 24f));
+        Font brandTitleFont = brandTitle.getFont();
+        if (brandTitleFont != null) {
+            brandTitle.setFont(brandTitleFont.deriveFont(Font.BOLD, 24f));
         }
         JLabel brandSubtitle = new JLabel("LENDING MANAGEMENT");
         brandSubtitle.setForeground(sidebarMuted());
-        Font subtitleFont = brandSubtitle.getFont();
-        if (subtitleFont != null) {
-            brandSubtitle.setFont(subtitleFont.deriveFont(12f));
+        Font brandSubtitleFont = brandSubtitle.getFont();
+        if (brandSubtitleFont != null) {
+            brandSubtitle.setFont(brandSubtitleFont.deriveFont(12f));
         }
 
         brandText.add(brandTitle);
@@ -366,12 +382,15 @@ public class DashboardFrame extends JFrame {
         borrowerButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         loansButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         paymentsButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        transactionsButton.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         sections.add(borrowerButton);
         sections.add(Box.createVerticalStrut(10));
         sections.add(loansButton);
         sections.add(Box.createVerticalStrut(10));
         sections.add(paymentsButton);
+        sections.add(Box.createVerticalStrut(10));
+        sections.add(transactionsButton);
 
         JPanel nav = new JPanel(new BorderLayout());
         nav.setOpaque(false);
@@ -399,10 +418,7 @@ public class DashboardFrame extends JFrame {
     private JLabel createSidebarSectionLabel(String text) {
         JLabel label = new JLabel(text);
         label.setForeground(sidebarMuted());
-        Font font = label.getFont();
-        if (font != null) {
-            label.setFont(font.deriveFont(Font.BOLD, 13f));
-        }
+        label.setFont(UITheme.metricLabelFont());
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
         return label;
     }
@@ -501,36 +517,6 @@ public class DashboardFrame extends JFrame {
 
     private String toHex(Color color) {
         return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
-    }
-
-    private JMenuBar buildMenuBar() {
-        JMenuBar bar = new JMenuBar();
-        bar.setBackground(UITheme.CARD);
-        bar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, UITheme.BORDER));
-
-        JMenu file = new JMenu("File");
-        JMenuItem sendReminders = new JMenuItem("Send Overdue Reminders Now");
-        JMenuItem exit = new JMenuItem("Exit");
-        file.setForeground(UITheme.TEXT);
-        sendReminders.setForeground(UITheme.TEXT);
-        exit.setForeground(UITheme.TEXT);
-        sendReminders.addActionListener(e -> sendOverdueReminders());
-        exit.addActionListener(e -> dispose());
-        file.add(sendReminders);
-        file.add(exit);
-
-        JMenu help = new JMenu("Help");
-        JMenuItem about = new JMenuItem("About");
-        help.setForeground(UITheme.TEXT);
-        about.setForeground(UITheme.TEXT);
-        about.addActionListener(e -> JOptionPane.showMessageDialog(this,
-            "LendWise - Lending Management System\nDark theme, modern UI.",
-            "About", JOptionPane.INFORMATION_MESSAGE));
-        help.add(about);
-
-        bar.add(file);
-        bar.add(help);
-        return bar;
     }
 
     private void promptForOverdueReminders() {
